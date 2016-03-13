@@ -101,13 +101,13 @@ type RuleResult = [Vec2]
 
 data Puzzle = Grid {
   pDimensions :: Vec2,
-  pVertices :: [Vertex],
-  pEdges :: [Edge],
-  pCells :: [Cell],
-  pSources :: [Source],
-  pSinks :: [Sink],
-  pRules :: [Puzzle -> Solution -> RuleResult]
-};
+  pVertices   :: [Vertex],
+  pEdges      :: [Edge],
+  pCells      :: [Cell],
+  pSources    :: [Source],
+  pSinks      :: [Sink],
+  pRules      :: [Puzzle -> Solution -> RuleResult]
+}
 
 {- Core functions: -}
 
@@ -151,7 +151,7 @@ offset (offR, offC) (Shape s)
   = Shape
   $ map (\(r, c) -> (r + offR, c + offC)) s
 
---  Given a grid size and a path within that grid, give the shapes of the 
+--  Given a grid size and a path within that grid, give the shapes of the
 --  partitions that are separated by that path.
 gridPartitions :: Vec2 -> Path -> [Shape]
 gridPartitions (h, w) soln = gp [([c], [c])] cs
@@ -190,13 +190,33 @@ free c@(cr, cc) (h, w) es = concat [north, south, east, west]
     east = if cc < pred w && (not $ ((cr, succ cc), Vertical) `elem` es)
       then [East] else []
 
---  Given a cell address and a direction, give the address of the cell to be 
+--  Given a cell address and a direction, give the address of the cell to be
 --  found in that direction.
 cellToThe :: Vec2 -> Direction -> Vec2
-cellToThe (r, c) North = (pred r, c)
-cellToThe (r, c) South = (succ r, c)
-cellToThe (r, c) West = (r, pred c)
-cellToThe (r, c) East = (r, succ c)
+cellToThe (r, c) North  = (pred r, c)
+cellToThe (r, c) South  = (succ r, c)
+cellToThe (r, c) West   = (r, pred c)
+cellToThe (r, c) East   = (r, succ c)
+
+validatePath :: Puzzle -> Path -> Bool
+validatePath puzzle path = source && sink && allWithin
+  where
+    source = let (v1, v2) = verticesOfEdge $ head path 
+      in v1 `elem` pSources puzzle || v2 `elem` pSources puzzle
+    sink = let (v1, v2) = verticesOfEdge $ last path 
+      in v1 `elem` pSources puzzle || v2 `elem` pSinks puzzle
+    allWithin = all (edgeWithin puzzle) path
+
+verticesOfEdge :: (Vec2, Orientation) -> (Vec2, Vec2)
+verticesOfEdge ((r, c), Vertical)   = ((r, c), (succ r, c))
+verticesOfEdge ((r, c), Horizontal) = ((r, c), (r, succ c))
+
+edgeWithin :: Puzzle -> (Vec2, Orientation) -> Bool
+edgeWithin p ((r, c), o) = ew o
+  where
+    (sr, sc) = pDimensions p
+    ew Vertical   = r >= 0 && r <  sr && c >= 0 && c <= sc
+    ew Horizontal = r >= 0 && r <= sr && c >= 0 && c <  sc
 
 {- Sample values -}
 
@@ -213,13 +233,16 @@ shapeS = Shape [
   (1, 0), (1, 1)
   ]
 
-testPartitions :: [Shape]
-testPartitions = gridPartitions (4,4) [
+testPath :: Path
+testPath = [
     ((0,2),Vertical),
     ((1,2),Vertical),
     ((2,2),Horizontal),
     ((2,3),Vertical),
     ((3,3),Vertical)
   ]
+
+testPartitions :: [Shape]
+testPartitions = gridPartitions (4,4) testPath
 
 

@@ -2,6 +2,8 @@ module Witness where
 
 import Data.Function (on, fix)
 import Data.List (intersperse, minimumBy, union, find, (\\))
+import Data.Maybe (listToMaybe)
+import System.IO
 
 {-
 There are three address spaces for a grid: cells, edges and vertices. The cell
@@ -84,7 +86,7 @@ data Feature
   | Negation
   | Eraser
   | Gap
-  | Washer
+  | Hex
   deriving (Eq, Show)
 
 type Vertex = (Vec2, Feature)
@@ -173,14 +175,14 @@ gridPartitions (h, w) soln = gp [([c], [c])] cs
         fs' = fs `union` (expansions \\ shape)
         shape' = shape `union` expansions
         extras' = extras \\ expansions
-        expansions = map (cellToThe f) $ free f (h, w) soln
+        expansions = map (cellToThe f) $ freeC f (h, w) soln
 
 --  Given a cell address the dimensions of the grid that the cell is in, and a
 --  path within that grid, give the directions one can travel from that cell
 --  which do not cross the stroke of a path or extend beyond the limits of the
 --  grid.
-free :: Vec2 -> Vec2 -> Path -> [Direction]
-free c@(cr, cc) (h, w) es = concat [north, south, east, west]
+freeC :: Vec2 -> Vec2 -> Path -> [Direction]
+freeC c@(cr, cc) (h, w) es = concat [north, south, east, west]
   where
     north = if cr > 0 && (not $ (c, Horizontal) `elem` es)
       then [North] else []
@@ -190,6 +192,15 @@ free c@(cr, cc) (h, w) es = concat [north, south, east, west]
       then [West] else []
     east = if cc < pred w && (not $ ((cr, succ cc), Vertical) `elem` es)
       then [East] else []
+
+freeV :: Vec2 -> Vec2 -> Path -> [Direction]
+freeV v@(vr, vc) (h, w) es = concat [north, south, east, west]
+  where
+    north = undefined
+    south = undefined
+    west  = undefined
+    east  = undefined
+
 
 --  Given a cell address and a direction, give the address of the cell to be
 --  found in that direction.
@@ -219,6 +230,111 @@ edgeWithin p ((r, c), o) = ew o
     ew Vertical   = r >= 0 && r <  sr && c >= 0 && c <= sc
     ew Horizontal = r >= 0 && r <= sr && c >= 0 && c <  sc
 
+cellAt :: Puzzle -> Vec2 -> Maybe Feature
+cellAt p a
+  = fmap snd
+  $ find ((==a) . fst)
+  $ pCells p
+
+vertexAt :: Puzzle -> Vec2 -> Maybe Feature
+vertexAt p a
+  = fmap snd
+  $ find ((==a) . fst)
+  $ pVertices p
+
+edgeAt :: Puzzle -> Vec2 -> Orientation -> Maybe Feature
+edgeAt p a o
+  = fmap (\(_, _, f) -> f)
+  $ find (\(a', o', _) -> a == a' && o == o')
+  $ pEdges p
+
+renderPuzzleWithPath :: Puzzle -> Path -> String
+renderPuzzleWithPath p soln 
+  = (++ edgeRow sr ++ "\n")
+  $ concat
+  $ map row [0..(pred sr)]
+  where
+    (sr, sc) = pDimensions p
+
+    verticesOfPath :: [Vec2]
+    verticesOfPath = concatMap ((\(v1, v2) -> [v1, v2]) . verticesOfEdge) soln
+
+    vertex :: Int -> Int -> String
+    vertex r c = case (
+        vertexAt p (r, c),
+        (r, c) `elem` pSources p,
+        (r, c) `elem` pSinks p,
+        (r, c) `elem` verticesOfPath
+      ) of
+      (_, True, _, _)             -> "S"
+      (_, _, True, _)             -> "K"
+      (_, _, _, True)             -> "x"
+      (Nothing, False, False, _)  -> "+"
+      (Just Hex, _, _, _)         -> "*"
+      (Just Gap, _, _, _)         -> " "
+
+    edge :: Int -> Int -> Orientation -> String
+    edge r c o = case (
+        edgeAt p (r, c) o,
+        o,
+        ((r, c), o) `elem` soln
+      ) of
+      (_, Horizontal, True)     -> "="
+      (_, Vertical, True)       -> "U"
+      (Nothing, Horizontal, _)  -> "-"
+      (Nothing, Vertical, _)    -> "|"
+      (Just Hex, _, _)          -> "*"
+
+    cell :: Int -> Int -> String
+    cell r c = case cellAt p (r, c) of
+      Nothing -> " "
+
+    egdeGroup :: Int -> Int -> String
+    egdeGroup r c = vertex r c ++ "--" ++ edge r c Horizontal ++ "--"
+
+    edgeRow :: Int -> String
+    edgeRow r = concat [ egdeGroup r c | c <- [0..(pred sc)] ] ++ vertex r sc
+
+    cellGroup :: Int -> Int -> String
+    cellGroup r c = edge r c Vertical ++ "  " ++ cell r c ++ "  "
+
+    cellRow :: Int -> String
+    cellRow r 
+      = concat [ cellGroup r c | c <- [0..(pred sc)] ] ++ edge r sc Vertical
+
+    row :: Int -> String
+    row r = edgeRow r ++ "\n" ++ cellRow r ++ "\n"
+
+
+selectSource :: Puzzle -> IO Vec2
+selectSource p = let sources = pSources p in if length sources == 1
+  then return $ head sources
+  else do
+    let iSources = zip sources [0..]
+    putStrLn "Select a source:"
+    flip mapM_ iSources
+      $ \(s, i) -> putStrLn
+        $ "\t[" ++ show i ++ "] for the source at " ++ show s
+    ln <- getLine;
+    case maybeRead ln of
+      Nothing -> putStrLn "Bad imput" >> selectSource p
+      Just n -> if n >= 0 && n < length sources
+        then return $ sources !! n
+        else putStrLn "Bad input" >> selectSource p
+
+runPuzzle :: Puzzle -> IO ()
+runPuzzle p = do
+  source <- selectSource p
+
+  return ()
+
+--  copied from:
+--  http://hackage.haskell.org/package/cgi-3001.3.0.0/docs/Network-CGI-Protocol.html#v:maybeRead
+maybeRead :: Read a => String -> Maybe a
+maybeRead = fmap fst . listToMaybe . reads
+
+
+
 {- Sample values -}
 
 shapeTDown :: Shape
@@ -243,78 +359,22 @@ testPath = [
     ((3,3),Vertical)
   ]
 
-testPuzzle = Grid { pDimensions = (4,4), pVertices = [], pEdges = [], pCells = [], pSources = [(0,2)], pSinks = [(4,3)], pRules = [] }
+testPuzzle :: Puzzle
+testPuzzle = Grid {
+    pDimensions = (4,4),
+    pVertices = [],
+    pEdges = [
+        ((0, 0), Horizontal, Hex),
+        ((0, 0), Vertical, Hex)
+      ],
+    pCells = [],
+    pSources = [(0,2), (0,3)],
+    pSinks = [(4,3)],
+    pRules = []
+  }
 
 testPartitions :: [Shape]
 testPartitions = gridPartitions (4,4) testPath
 
-cellAt :: Puzzle -> Vec2 -> Maybe Feature
-cellAt p a
-  = fmap snd
-  $ find ((==a) . fst)
-  $ pCells p
 
-vertexAt :: Puzzle -> Vec2 -> Maybe Feature
-vertexAt p a
-  = fmap snd
-  $ find ((==a) . fst)
-  $ pVertices p
-
-edgeAt :: Puzzle -> Vec2 -> Orientation -> Maybe Feature
-edgeAt p a o
-  = fmap (\(_, _, f) -> f)
-  $ find (\(a', o', _) -> a == a' && o == o')
-  $ pEdges p
-
-
-renderPuzzleWithPath :: Puzzle -> Path -> String
-renderPuzzleWithPath p soln 
-  = (++ edgeRow sr ++ "\n")
-  $ concat
-  $ map row [0..(pred sr)]
-  where
-    (sr, sc) = pDimensions p
-
-    vertex :: Int -> Int -> String
-    vertex r c = case (
-        vertexAt p (r, c),
-        (r, c) `elem` pSources p,
-        (r, c) `elem` pSinks p
-      ) of
-      (Nothing, False, False) -> "+"
-      (Just Washer, _, _)     -> "*"
-      (_, True, _)            -> "S"
-      (_, _, True)            -> "K"
-
-    edge :: Int -> Int -> Orientation -> String
-    edge r c o = case (edgeAt p (r, c) o, o) of
-      (Nothing, Horizontal) -> "-"
-      (Nothing, Vertical)   -> "|"
-      (Just Washer, _)      -> "*"
-
-    cell :: Int -> Int -> String
-    cell r c = case cellAt p (r, c) of
-      Nothing -> " "
-
-    egdeGroup :: Int -> Int -> String
-    egdeGroup r c = vertex r c ++ "--" ++ edge r c Horizontal ++ "--"
-
-    edgeRow :: Int -> String
-    edgeRow r = concat [ egdeGroup r c | c <- [0..(pred sc)] ] ++ vertex r sc
-
-    cellGroup :: Int -> Int -> String
-    cellGroup r c = edge r c Vertical ++ "  " ++ cell r c ++ "  "
-
-    cellRow :: Int -> String
-    cellRow r = concat [ cellGroup r c | c <- [0..(pred sc)] ] ++ edge r sc Vertical
-
-    row :: Int -> String
-    row r = edgeRow r ++ "\n" ++ cellRow r ++ "\n"
-
-
-
-runPuzzle :: Puzzle -> IO Path
-runPuzzle = undefined
-
-
-
+main = runPuzzle testPuzzle

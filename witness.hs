@@ -1,7 +1,7 @@
 module Witness where
 
 import Data.Function (on, fix)
-import Data.List (intersperse, minimumBy, union, (\\))
+import Data.List (intersperse, minimumBy, union, find, (\\))
 
 {-
 There are three address spaces for a grid: cells, edges and vertices. The cell
@@ -137,6 +137,7 @@ showShape (Shape s)
 
     b2s b = if b then '#' else ' '
 
+
 --  Normalize a shape by shifting it back to the origin:
 normalize :: Shape -> Shape
 normalize shape@(Shape s) = offset (delR, delC) shape
@@ -242,7 +243,78 @@ testPath = [
     ((3,3),Vertical)
   ]
 
+testPuzzle = Grid { pDimensions = (4,4), pVertices = [], pEdges = [], pCells = [], pSources = [(0,2)], pSinks = [(4,3)], pRules = [] }
+
 testPartitions :: [Shape]
 testPartitions = gridPartitions (4,4) testPath
+
+cellAt :: Puzzle -> Vec2 -> Maybe Feature
+cellAt p a
+  = fmap snd
+  $ find ((==a) . fst)
+  $ pCells p
+
+vertexAt :: Puzzle -> Vec2 -> Maybe Feature
+vertexAt p a
+  = fmap snd
+  $ find ((==a) . fst)
+  $ pVertices p
+
+edgeAt :: Puzzle -> Vec2 -> Orientation -> Maybe Feature
+edgeAt p a o
+  = fmap (\(_, _, f) -> f)
+  $ find (\(a', o', _) -> a == a' && o == o')
+  $ pEdges p
+
+
+renderPuzzleWithPath :: Puzzle -> Path -> String
+renderPuzzleWithPath p soln 
+  = (++ edgeRow sr ++ "\n")
+  $ concat
+  $ map row [0..(pred sr)]
+  where
+    (sr, sc) = pDimensions p
+
+    vertex :: Int -> Int -> String
+    vertex r c = case (
+        vertexAt p (r, c),
+        (r, c) `elem` pSources p,
+        (r, c) `elem` pSinks p
+      ) of
+      (Nothing, False, False) -> "+"
+      (Just Washer, _, _)     -> "*"
+      (_, True, _)            -> "S"
+      (_, _, True)            -> "K"
+
+    edge :: Int -> Int -> Orientation -> String
+    edge r c o = case (edgeAt p (r, c) o, o) of
+      (Nothing, Horizontal) -> "-"
+      (Nothing, Vertical)   -> "|"
+      (Just Washer, _)      -> "*"
+
+    cell :: Int -> Int -> String
+    cell r c = case cellAt p (r, c) of
+      Nothing -> " "
+
+    egdeGroup :: Int -> Int -> String
+    egdeGroup r c = vertex r c ++ "--" ++ edge r c Horizontal ++ "--"
+
+    edgeRow :: Int -> String
+    edgeRow r = concat [ egdeGroup r c | c <- [0..(pred sc)] ] ++ vertex r sc
+
+    cellGroup :: Int -> Int -> String
+    cellGroup r c = edge r c Vertical ++ "  " ++ cell r c ++ "  "
+
+    cellRow :: Int -> String
+    cellRow r = concat [ cellGroup r c | c <- [0..(pred sc)] ] ++ edge r sc Vertical
+
+    row :: Int -> String
+    row r = edgeRow r ++ "\n" ++ cellRow r ++ "\n"
+
+
+
+runPuzzle :: Puzzle -> IO Path
+runPuzzle = undefined
+
 
 

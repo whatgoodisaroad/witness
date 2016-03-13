@@ -45,6 +45,8 @@ v(m,0) ----- e(m,0,h) ----- v(m,1) ----- ... ----- e(m,n-1,h) ------ v(m,n)
 -}
 
 
+{- Types: -}
+
 type Vec2 = (Int, Int)
 
 data Direction
@@ -98,20 +100,24 @@ type Solution = Path
 type RuleResult = [Vec2]
 
 data Puzzle = Grid {
-  dimensions :: Vec2,
-  vertices :: [Vertex],
-  edges :: [Edge],
-  cells :: [Cell],
-  sources :: [Source],
-  sinks :: [Sink],
-  rules :: [Puzzle -> Solution -> RuleResult]
+  pDimensions :: Vec2,
+  pVertices :: [Vertex],
+  pEdges :: [Edge],
+  pCells :: [Cell],
+  pSources :: [Source],
+  pSinks :: [Sink],
+  pRules :: [Puzzle -> Solution -> RuleResult]
 };
 
+{- Core functions: -}
 
-
+--  Find the size of a shape:
 shapeDims :: Shape -> Vec2
-shapeDims (Shape s) = (maximum $ map fst s, maximum $ map snd s)
+shapeDims s = (maximum $ map fst s', maximum $ map snd s')
+  where
+    (Shape s') = normalize s
 
+--  Render a shape to a string:
 showShape :: Shape -> String
 showShape (Shape s)
   = (\s -> "\n" ++ s ++ "\n")
@@ -131,6 +137,7 @@ showShape (Shape s)
 
     b2s b = if b then '#' else ' '
 
+--  Normalize a shape by shifting it back to the origin:
 normalize :: Shape -> Shape
 normalize shape@(Shape s) = offset (delR, delC) shape
   where
@@ -138,12 +145,14 @@ normalize shape@(Shape s) = offset (delR, delC) shape
     delR = negate $ minimum $ map fst s
     delC = negate $ minimum $ map snd s
 
-
+--  Translate the shape by deltas in both directions:
 offset :: Vec2 -> Shape -> Shape
 offset (offR, offC) (Shape s)
   = Shape
   $ map (\(r, c) -> (r + offR, c + offC)) s
 
+--  Given a grid size and a path within that grid, give the shapes of the 
+--  partitions that are separated by that path.
 gridPartitions :: Vec2 -> Path -> [Shape]
 gridPartitions (h, w) soln = gp [([c], [c])] cs
   where
@@ -165,6 +174,10 @@ gridPartitions (h, w) soln = gp [([c], [c])] cs
         extras' = extras \\ expansions
         expansions = map (cellToThe f) $ free f (h, w) soln
 
+--  Given a cell address the dimensions of the grid that the cell is in, and a
+--  path within that grid, give the directions one can travel from that cell
+--  which do not cross the stroke of a path or extend beyond the limits of the
+--  grid.
 free :: Vec2 -> Vec2 -> Path -> [Direction]
 free c@(cr, cc) (h, w) es = concat [north, south, east, west]
   where
@@ -177,13 +190,13 @@ free c@(cr, cc) (h, w) es = concat [north, south, east, west]
     east = if cc < pred w && (not $ ((cr, succ cc), Vertical) `elem` es)
       then [East] else []
 
+--  Given a cell address and a direction, give the address of the cell to be 
+--  found in that direction.
 cellToThe :: Vec2 -> Direction -> Vec2
 cellToThe (r, c) North = (pred r, c)
 cellToThe (r, c) South = (succ r, c)
 cellToThe (r, c) West = (r, pred c)
 cellToThe (r, c) East = (r, succ c)
-
-
 
 {- Sample values -}
 
@@ -198,6 +211,15 @@ shapeS :: Shape
 shapeS = Shape [
           (0, 1), (0, 2),
   (1, 0), (1, 1)
+  ]
+
+testPartitions :: [Shape]
+testPartitions = gridPartitions (4,4) [
+    ((0,2),Vertical),
+    ((1,2),Vertical),
+    ((2,2),Horizontal),
+    ((2,3),Vertical),
+    ((3,3),Vertical)
   ]
 
 

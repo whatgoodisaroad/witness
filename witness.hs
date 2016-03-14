@@ -1,7 +1,9 @@
+{-# LANGUAGE LambdaCase #-}
+
 module Witness where
 
 import Data.Function (on, fix)
-import Data.List (intersperse, minimumBy, union, find, (\\))
+import Data.List (intersperse, minimumBy, union, find, nub, (\\))
 import Data.Maybe (listToMaybe)
 import System.IO
 
@@ -193,14 +195,32 @@ freeC c@(cr, cc) (h, w) es = concat [north, south, east, west]
     east = if cc < pred w && (not $ ((cr, succ cc), Vertical) `elem` es)
       then [East] else []
 
-freeV :: Vec2 -> Vec2 -> Path -> [Direction]
-freeV v@(vr, vc) (h, w) es = concat [north, south, east, west]
+available :: Vec2 -> Puzzle -> Path -> [Direction]
+available v@(vr, vc) p es = concat [north, south, east, west]
   where
-    north = undefined
-    south = undefined
-    west  = undefined
-    east  = undefined
-
+    (h, w) = pDimensions p
+    vs = verticesOfPath es
+    noGap r c o = (/= Just Gap) $ edgeAt p (r, c) o
+    north = 
+      if vr > 0 
+      &&  (not $ (pred vr, vc) `elem` vs)
+      && noGap (pred vr) vc Vertical
+        then [North] else []
+    south =
+      if vr < h
+      && (not $ (succ vr, vc) `elem` vs)
+      && noGap (succ vr) vc Vertical
+        then [South] else []
+    west =
+      if vc > 0
+      && (not $ (vr, pred vc) `elem` vs)
+      && noGap vr (pred vc) Horizontal
+        then [West] else []
+    east =
+      if vc < w
+      && (not $ (vr, succ vc) `elem` vs)
+      && noGap vr (succ vc) Horizontal
+        then [East] else []
 
 --  Given a cell address and a direction, give the address of the cell to be
 --  found in that direction.
@@ -211,17 +231,36 @@ cellToThe (r, c) West   = (r, pred c)
 cellToThe (r, c) East   = (r, succ c)
 
 validatePath :: Puzzle -> Path -> Bool
-validatePath puzzle path = source && sink && allWithin
+validatePath puzzle path
+  =   source
+  &&  sink
+  &&  allWithin
+  &&  noRepeatVertices
+  &&  connected
   where
     source = let (v1, v2) = verticesOfEdge $ head path 
       in v1 `elem` pSources puzzle || v2 `elem` pSources puzzle
     sink = let (v1, v2) = verticesOfEdge $ last path 
       in v1 `elem` pSources puzzle || v2 `elem` pSinks puzzle
     allWithin = all (edgeWithin puzzle) path
+    noRepeatVertices = let vs = map verticesOfEdge path
+      in  (not $ anyRepeated $ map fst vs)
+      &&  (not $ anyRepeated $ map snd vs)
+    connected = scanP path
+
+    scanP [] = True
+    scanP [_] = True
+    scanP (e1:e2:es)
+      =   (snd $ verticesOfEdge e1) == (fst $ verticesOfEdge e2)
+      &&  scanP (e2:es)
+
 
 verticesOfEdge :: (Vec2, Orientation) -> (Vec2, Vec2)
 verticesOfEdge ((r, c), Vertical)   = ((r, c), (succ r, c))
 verticesOfEdge ((r, c), Horizontal) = ((r, c), (r, succ c))
+
+verticesOfPath :: Path -> [Vec2]
+verticesOfPath = nub . concatMap ((\(v1, v2) -> [v1, v2]) . verticesOfEdge)
 
 edgeWithin :: Puzzle -> (Vec2, Orientation) -> Bool
 edgeWithin p ((r, c), o) = ew o
@@ -250,28 +289,25 @@ edgeAt p a o
 
 renderPuzzleWithPath :: Puzzle -> Path -> String
 renderPuzzleWithPath p soln 
-  = (++ edgeRow sr ++ "\n")
+  = (\p -> "\n" ++ p ++ edgeRow sr ++ "\n")
   $ concat
   $ map row [0..(pred sr)]
   where
     (sr, sc) = pDimensions p
-
-    verticesOfPath :: [Vec2]
-    verticesOfPath = concatMap ((\(v1, v2) -> [v1, v2]) . verticesOfEdge) soln
 
     vertex :: Int -> Int -> String
     vertex r c = case (
         vertexAt p (r, c),
         (r, c) `elem` pSources p,
         (r, c) `elem` pSinks p,
-        (r, c) `elem` verticesOfPath
+        (r, c) `elem` verticesOfPath soln
       ) of
-      (_, True, _, _)             -> "S"
-      (_, _, True, _)             -> "K"
-      (_, _, _, True)             -> "x"
-      (Nothing, False, False, _)  -> "+"
-      (Just Hex, _, _, _)         -> "*"
-      (Just Gap, _, _, _)         -> " "
+      (_, True, _, _)     -> "S"
+      (_, _, True, _)     -> "K"
+      (_, _, _, True)     -> "x"
+      (Nothing, _, _, _)  -> "+"
+      (Just Hex, _, _, _) -> "*"
+      (Just Gap, _, _, _) -> " "
 
     edge :: Int -> Int -> Orientation -> String
     edge r c o = case (
@@ -305,7 +341,6 @@ renderPuzzleWithPath p soln
     row :: Int -> String
     row r = edgeRow r ++ "\n" ++ cellRow r ++ "\n"
 
-
 selectSource :: Puzzle -> IO Vec2
 selectSource p = let sources = pSources p in if length sources == 1
   then return $ head sources
@@ -325,15 +360,69 @@ selectSource p = let sources = pSources p in if length sources == 1
 runPuzzle :: Puzzle -> IO ()
 runPuzzle p = do
   source <- selectSource p
-
+  path <- loopPuzzle p [] source
+  putStrLn $ renderPuzzleWithPath p path
   return ()
+
+stepPuzzle :: Puzzle -> Path -> Vec2 -> IO (Path, Vec2)
+stepPuzzle puzzle path v@(vr, vc) = do
+  putStrLn $ renderPuzzleWithPath puzzle path
+  move <- getMove puzzle path v
+
+  let v' = case move of {
+      North -> (pred vr, vc);
+      South -> (succ vr, vc);
+      West  -> (vr, pred vc);
+      East  -> (vr, succ vc);
+    }
+
+  let newEdge = case move of {
+      North -> ((pred vr, vc), Vertical);
+      South -> ((vr, vc), Vertical);
+      West  -> ((vr, pred vc), Horizontal);
+      East  -> ((vr, vc), Horizontal);
+    }
+
+  return (newEdge:path, v')
+
+loopPuzzle :: Puzzle -> Path -> Vec2 -> IO Path
+loopPuzzle puzzle path vertex = do
+  (path', vertex') <- stepPuzzle puzzle path vertex
+  if vertex' `elem` pSinks puzzle
+    then return path'
+    else loopPuzzle puzzle path' vertex'
+
+getMove :: Puzzle -> Path -> Vec2 -> IO Direction
+getMove puzzle path v = do
+  let moves = available v puzzle path
+  putStr "Choose a direction (W/A/S/D)\n\tAvailable moves: "
+  putStrLn
+    $ concat
+    $ intersperse " / "
+    $ flip map moves 
+    $ \case
+      North -> "W"
+      West  -> "A"
+      South -> "S"
+      East  -> "D"
+  getWasd
+
+getWasd :: IO Direction
+getWasd = getChar >>= \case
+  'w' -> return North
+  'a' -> return West
+  's' -> return South
+  'd' -> return East
+  _   -> getWasd
 
 --  copied from:
 --  http://hackage.haskell.org/package/cgi-3001.3.0.0/docs/Network-CGI-Protocol.html#v:maybeRead
 maybeRead :: Read a => String -> Maybe a
 maybeRead = fmap fst . listToMaybe . reads
 
-
+anyRepeated :: Eq a => [a] -> Bool
+anyRepeated [] = False
+anyRepeated (x:xs) = if x `elem` xs then True else anyRepeated xs
 
 {- Sample values -}
 

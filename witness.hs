@@ -103,6 +103,8 @@ type Solution = Path
 
 type RuleResult = [Vec2]
 
+type Validator = Puzzle -> Solution -> Bool
+
 data Puzzle = Grid {
   pDimensions :: Vec2,
   pVertices   :: [Vertex],
@@ -110,7 +112,7 @@ data Puzzle = Grid {
   pCells      :: [Cell],
   pSources    :: [Source],
   pSinks      :: [Sink],
-  pRules      :: [Puzzle -> Solution -> RuleResult]
+  pRules      :: [Validator]
 }
 
 {- Core functions: -}
@@ -254,7 +256,6 @@ validatePath puzzle path
       =   (snd $ verticesOfEdge e1) == (fst $ verticesOfEdge e2)
       &&  scanP (e2:es)
 
-
 verticesOfEdge :: (Vec2, Orientation) -> (Vec2, Vec2)
 verticesOfEdge ((r, c), Vertical)   = ((r, c), (succ r, c))
 verticesOfEdge ((r, c), Horizontal) = ((r, c), (r, succ c))
@@ -286,6 +287,25 @@ edgeAt p a o
   = fmap (\(_, _, f) -> f)
   $ find (\(a', o', _) -> a == a' && o == o')
   $ pEdges p
+
+edgesWhere :: Puzzle -> (Feature -> Bool) -> [(Vec2, Orientation)]
+edgesWhere p f = map drop3 $ filter (f . trd) $ pEdges p
+  where
+    trd (_, _, x) = x
+    drop3 (a, b, _) = (a, b)
+
+verticesWhere :: Puzzle -> (Feature -> Bool) -> [Vec2]
+verticesWhere p f = map fst $ filter (f . snd) $ pVertices p
+
+hexRule :: Validator
+hexRule puzzle soln = vertices && edges
+  where
+    vertices = all
+      (flip elem $ verticesOfPath soln)
+      (puzzle `verticesWhere` (==Hex))
+    edges = all
+      (flip elem soln)
+      (puzzle `edgesWhere` (==Hex))
 
 renderPuzzleWithPath :: Puzzle -> Path -> String
 renderPuzzleWithPath p soln 
@@ -362,7 +382,9 @@ runPuzzle p = do
   source <- selectSource p
   path <- loopPuzzle p [] source
   putStrLn $ renderPuzzleWithPath p path
-  return ()
+  if and $ map (\r -> r p path) (pRules p)
+    then putStrLn "Success!"
+    else putStrLn "Failure"
 
 stepPuzzle :: Puzzle -> Path -> Vec2 -> IO (Path, Vec2)
 stepPuzzle puzzle path v@(vr, vc) = do
@@ -459,7 +481,7 @@ testPuzzle = Grid {
     pCells = [],
     pSources = [(0,2), (0,3)],
     pSinks = [(4,3)],
-    pRules = []
+    pRules = [ hexRule ]
   }
 
 testPartitions :: [Shape]

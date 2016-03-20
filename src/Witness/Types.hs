@@ -37,9 +37,9 @@ data Feature
   | Hex
   deriving (Eq, Show)
 
-type Vertex = (Vec2, Feature)
-type Edge = (Vec2, Orientation, Feature)
-type Cell = (Vec2, Feature)
+type Vertex a = (Vec2, a)
+type Edge a = (Vec2, Orientation, a)
+type Cell a = (Vec2, Feature)
 
 type Source = Vec2
 type Sink = Vec2
@@ -49,14 +49,16 @@ type Solution = Path
 
 type RuleResult = [Vec2]
 
-type Validator = Puzzle -> Solution -> Bool
+type Validator a = Puzzle' a -> Solution -> Bool
 
-data Puzzle = Grid {
+data Puzzle' a = Grid {
   pDimensions :: Vec2,
-  pVertices   :: [Vertex],
-  pEdges      :: [Edge],
-  pCells      :: [Cell],
+  pVertices   :: [Vertex a],
+  pEdges      :: [Edge a],
+  pCells      :: [Cell a],
   pSources    :: [Source],
   pSinks      :: [Sink],
-  pRules      :: [Validator]
+  pRules      :: [Validator a]
 }
+
+type Puzzle = Puzzle' Feature

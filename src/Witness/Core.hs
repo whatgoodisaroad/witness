@@ -188,7 +188,7 @@ edgesWhere p f = map drop3 $ filter (f . trd) $ pEdges p
 verticesWhere :: Puzzle -> (Feature -> Bool) -> [Vec2]
 verticesWhere p f = map fst $ filter (f . snd) $ pVertices p
 
-hexRule :: Validator
+hexRule :: Validator Feature
 hexRule puzzle soln = vertices && edges
   where
     vertices = all
